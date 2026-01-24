@@ -1,88 +1,136 @@
+# =========================
+# 1. IMPORT LIBRARIES
+# =========================
 import streamlit as st
 import pandas as pd
 import numpy as np
+import joblib
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
-    accuracy_score, roc_auc_score, precision_score,
-    recall_score, f1_score, matthews_corrcoef,
-    confusion_matrix
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    matthews_corrcoef,
+    confusion_matrix,
+    roc_auc_score
 )
-
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBClassifier
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-st.title("Breast Cancer Classification App")
+# =========================
+# 2. PAGE CONFIG
+# =========================
+st.set_page_config(
+    page_title="ML Assignment – Breast Cancer Prediction",
+    layout="centered"
+)
 
+st.title("Breast Cancer Classification App")
+st.write("Upload test data and evaluate ML models")
+
+
+# =========================
+# 3. MODEL LOADING
+# =========================
+@st.cache_resource
+def load_models():
+    models = {
+        "Logistic Regression": joblib.load("model/logistic_regression.pkl"),
+        "Decision Tree": joblib.load("model/decision_tree.pkl"),
+        "kNN": joblib.load("model/knn.pkl"),
+        "Naive Bayes": joblib.load("model/naive_bayes.pkl"),
+        "Random Forest": joblib.load("model/random_forest.pkl"),
+        "XGBoost": joblib.load("model/xgboost.pkl")
+    }
+    return models
+
+
+models = load_models()
+
+
+# =========================
+# 4. MODEL SELECTION
+# =========================
+model_name = st.selectbox("Select Model", list(models.keys()))
+model = models[model_name]
+
+
+# =========================
+# 5. FILE UPLOAD
+# =========================
 uploaded_file = st.file_uploader(
-    "Upload CSV test dataset (UCI format)",
+    "Upload CSV file (Test data only)",
     type=["csv"]
 )
 
-model_choice = st.selectbox(
-    "Select Model",
-    [
-        "Logistic Regression",
-        "Decision Tree",
-        "kNN",
-        "Naive Bayes",
-        "Random Forest",
-        "XGBoost"
-    ]
-)
+if uploaded_file is not None:
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file, header=None)
+    df = pd.read_csv(uploaded_file)
+    st.subheader("Uploaded Dataset Preview")
+    st.dataframe(df.head())
 
-    X = df.iloc[:, 2:]
-    y = df.iloc[:, 1].map({"M": 1, "B": 0})
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
-
-    if model_choice == "Logistic Regression":
-        model = LogisticRegression(max_iter=1000)
-    elif model_choice == "Decision Tree":
-        model = DecisionTreeClassifier(random_state=42)
-    elif model_choice == "kNN":
-        model = KNeighborsClassifier(n_neighbors=5)
-    elif model_choice == "Naive Bayes":
-        model = GaussianNB()
-    elif model_choice == "Random Forest":
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
+    # =========================
+    # 6. FEATURE / TARGET SPLIT
+    # =========================
+    if "diagnosis" in df.columns:
+        X = df.drop("diagnosis", axis=1)
+        y = df["diagnosis"]
+        evaluation_mode = True
     else:
-        model = XGBClassifier(use_label_encoder=False, eval_metric="logloss")
+        X = df
+        y = None
+        evaluation_mode = False
 
-    model.fit(X_train, y_train)
+    # =========================
+    # 7. PREDICTION
+    # =========================
+    y_pred = model.predict(X)
 
-    y_pred = model.predict(X_test)
-    y_prob = model.predict_proba(X_test)[:, 1]
+    st.subheader("Predictions")
+    st.write(y_pred[:10])
 
-    st.subheader("Evaluation Metrics")
-    st.write("Accuracy:", accuracy_score(y_test, y_pred))
-    st.write("AUC:", roc_auc_score(y_test, y_prob))
-    st.write("Precision:", precision_score(y_test, y_pred))
-    st.write("Recall:", recall_score(y_test, y_pred))
-    st.write("F1 Score:", f1_score(y_test, y_pred))
-    st.write("MCC:", matthews_corrcoef(y_test, y_pred))
 
-    st.subheader("Confusion Matrix")
-    cm = confusion_matrix(y_test, y_pred)
+    # =========================
+    # 8. METRICS (ONLY IF LABEL EXISTS)
+    # =========================
+    if evaluation_mode:
 
-    fig, ax = plt.subplots()
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
-    st.pyplot(fig)
+        accuracy = accuracy_score(y, y_pred)
+        precision = precision_score(y, y_pred)
+        recall = recall_score(y, y_pred)
+        f1 = f1_score(y, y_pred)
+        mcc = matthews_corrcoef(y, y_pred)
+
+        # AUC only if probability is supported
+        if hasattr(model, "predict_proba"):
+            y_prob = model.predict_proba(X)[:, 1]
+            auc = roc_auc_score(y, y_prob)
+        else:
+            auc = "Not Available"
+
+        st.subheader("Evaluation Metrics")
+
+        metrics_df = pd.DataFrame({
+            "Metric": ["Accuracy", "Precision", "Recall", "F1 Score", "MCC", "AUC"],
+            "Value": [accuracy, precision, recall, f1, mcc, auc]
+        })
+
+        st.table(metrics_df)
+
+        # =========================
+        # 9. CONFUSION MATRIX
+        # =========================
+        st.subheader("Confusion Matrix")
+
+        cm = confusion_matrix(y, y_pred)
+        fig, ax = plt.subplots()
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("Actual")
+        st.pyplot(fig)
+
+    else:
+        st.info("No target column found. Showing predictions only.")
