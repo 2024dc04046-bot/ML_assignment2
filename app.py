@@ -75,14 +75,23 @@ if uploaded_file is not None:
     # =========================
     # 6. FEATURE / TARGET SPLIT
     # =========================
+    # 1. Identify Target
     if "diagnosis" in df.columns:
-        X = df.drop("diagnosis", axis=1)
-        y = df["diagnosis"]
+        y = df["diagnosis"].map({"M": 1, "B": 0})
         evaluation_mode = True
     else:
-        X = df
         y = None
         evaluation_mode = False
+
+    # 2. Extract Features (Ensure exactly 30 columns in correct order)
+    # Most sklearn models store feature names in 'feature_names_in_'
+    if hasattr(model, "feature_names_in_"):
+        expected_features = model.feature_names_in_
+        X = df[expected_features]
+    else:
+        # Fallback if names aren't stored: drop metadata manually
+        cols_to_drop = [c for c in ["id", "ID", "diagnosis", "Diagnosis"] if c in df.columns]
+        X = df.drop(cols_to_drop, axis=1)
 
     # =========================
     # 7. PREDICTION
