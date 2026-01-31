@@ -75,34 +75,32 @@ if uploaded_file is not None:
     # =========================
     # 6. FEATURE / TARGET SPLIT
     # =========================
-    # 1. Identify Target
-    # Clean up column names in the uploaded file (remove spaces/lowercase)
-    df.columns = df.columns.str.strip()
+    # 1. Standardize uploaded columns: trim, lowercase, AND replace underscores with spaces
+    df.columns = df.columns.str.strip().str.lower().str.replace('_', ' ')
 
-    # Get the 30 feature names the model expects
+    # 2. Get expected features from model and clean them for matching
     if hasattr(model, "feature_names_in_"):
-        expected_features = list(model.feature_names_in_)
+        expected_raw = list(model.feature_names_in_)
+        # Create mapping of {cleaned_name: original_name_from_model}
+        # Model names like 'concave points_mean' stay 'concave points_mean'
+        mapping = {f.strip().lower().replace('_', ' '): f for f in expected_raw}
+        
+        missing = [f for f in mapping.keys() if f not in df.columns]
+        
+        if missing:
+            st.error(f"Missing columns: {missing}")
+            st.write("Columns found in your file:", list(df.columns))
+            st.stop()
+        
+        X = df[list(mapping.keys())]
+        X.columns = [mapping[c] for c in X.columns]
     else:
-        # Fallback if model doesn't store names
-        expected_features = df.columns.tolist()
-        expected_features = [c for c in expected_features if c.lower() not in ["id", "diagnosis"]]
+        X = df.drop([c for c in ["id", "diagnosis"] if c in df.columns], axis=1)
 
-    # Ensure all expected features are present in the uploaded DF
-    missing = [f for f in expected_features if f not in df.columns]
-
-    if missing:
-        st.error(f"Missing columns in CSV: {missing}")
-        st.stop() # Stop the app execution here to show the error clearly
-
-    X = df[expected_features]
-
-    # Handle Target for Evaluation
-    # Look for 'diagnosis' or 'Diagnosis'
-    target_col = next((c for c in df.columns if c.lower() == "diagnosis"), None)
-    
-    if target_col:
-        # Convert M/B to 1/0
-        y = df[target_col].map({'M': 1, 'B': 0, 1: 1, 0: 0})
+    # 3. Handle Target
+    target_col = next((c for c in df.columns if c in ["diagnosis", "target"]), None)
+    if target_col is not None:
+        y = df[target_col].map({'m': 1, 'b': 0, '1': 1, '0': 0, 1: 1, 0: 0})
         evaluation_mode = True
     else:
         y = None
