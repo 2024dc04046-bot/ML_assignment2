@@ -81,11 +81,22 @@ if uploaded_file is not None:
     # STEP 2: Standardize column names
     df.columns = df.columns.str.strip().str.lower().str.replace('_', ' ')
 
-    # STEP 3: Identify the target column and drop rows where labels are missing
+    # STEP 3: Identify the target column and map values (M/B -> 1/0)
     target_col = next((c for c in df.columns if c in ["diagnosis", "target"]), None)
+    
     if target_col:
+        # CLEANING: Drop rows where target is specifically missing
         df = df.dropna(subset=[target_col])
-        y = df[target_col].map({'m': 1, 'b': 0, '1': 1, '0': 0, 1: 1, 0: 0})
+        
+        # MAPPING: Force to string, uppercase, and map to catch 'M' and 'B'
+        # This prevents the NaN error in accuracy_score
+        y = df[target_col].astype(str).str.strip().str.upper().map({'M': 1, 'B': 0, '1': 1, '0': 0})
+        
+        # FINAL SAFETY: If any rows failed to map, drop them from the dataframe
+        valid_mask = y.notna()
+        y = y[valid_mask]
+        df = df[valid_mask]
+        
         evaluation_mode = True
     else:
         y = None
@@ -94,15 +105,17 @@ if uploaded_file is not None:
     # STEP 4: Match features to model expectations
     if hasattr(model, "feature_names_in_"):
         expected_raw = list(model.feature_names_in_)
+        # Standardize expected names to match standardized df columns
         mapping = {f.strip().lower().replace('_', ' '): f for f in expected_raw}
         
-        # Clean rows with missing features
-        df = df.dropna(subset=[col for col in df.columns if col in mapping.keys()])
-        
+        # Ensure only the 30 expected features are selected
         X = df[list(mapping.keys())]
+        # Rename them back to exactly what the model expects
         X.columns = [mapping[c] for c in X.columns]
     else:
-        X = df.drop([c for c in ["id", "diagnosis"] if c in df.columns], axis=1)
+        # Fallback for models without feature names stored
+        cols_to_drop = [c for c in ["id", "diagnosis", "target"] if c in df.columns]
+        X = df.drop(cols_to_drop, axis=1)
  
 
     # =========================
