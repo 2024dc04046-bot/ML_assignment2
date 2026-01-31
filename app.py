@@ -76,22 +76,37 @@ if uploaded_file is not None:
     # 6. FEATURE / TARGET SPLIT
     # =========================
     # 1. Identify Target
-    if "diagnosis" in df.columns:
-        y = df["diagnosis"].map({"M": 1, "B": 0})
+    # Clean up column names in the uploaded file (remove spaces/lowercase)
+    df.columns = df.columns.str.strip()
+
+    # Get the 30 feature names the model expects
+    if hasattr(model, "feature_names_in_"):
+        expected_features = list(model.feature_names_in_)
+    else:
+        # Fallback if model doesn't store names
+        expected_features = df.columns.tolist()
+        expected_features = [c for c in expected_features if c.lower() not in ["id", "diagnosis"]]
+
+    # Ensure all expected features are present in the uploaded DF
+    missing = [f for f in expected_features if f not in df.columns]
+
+    if missing:
+        st.error(f"Missing columns in CSV: {missing}")
+        st.stop() # Stop the app execution here to show the error clearly
+
+    X = df[expected_features]
+
+    # Handle Target for Evaluation
+    # Look for 'diagnosis' or 'Diagnosis'
+    target_col = next((c for c in df.columns if c.lower() == "diagnosis"), None)
+    
+    if target_col:
+        # Convert M/B to 1/0
+        y = df[target_col].map({'M': 1, 'B': 0, 1: 1, 0: 0})
         evaluation_mode = True
     else:
         y = None
         evaluation_mode = False
-
-    # 2. Extract Features (Ensure exactly 30 columns in correct order)
-    # Most sklearn models store feature names in 'feature_names_in_'
-    if hasattr(model, "feature_names_in_"):
-        expected_features = model.feature_names_in_
-        X = df[expected_features]
-    else:
-        # Fallback if names aren't stored: drop metadata manually
-        cols_to_drop = [c for c in ["id", "ID", "diagnosis", "Diagnosis"] if c in df.columns]
-        X = df.drop(cols_to_drop, axis=1)
 
     # =========================
     # 7. PREDICTION
