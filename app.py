@@ -75,36 +75,35 @@ if uploaded_file is not None:
     # =========================
     # 6. FEATURE / TARGET SPLIT
     # =========================
-    # 1. Standardize uploaded columns: trim, lowercase, AND replace underscores with spaces
+    # STEP 1: Remove empty rows often found at the end of CSV files
+    df = df.dropna(how='all') # Drops rows where ALL values are missing
+    
+    # STEP 2: Standardize column names
     df.columns = df.columns.str.strip().str.lower().str.replace('_', ' ')
 
-    # 2. Get expected features from model and clean them for matching
-    if hasattr(model, "feature_names_in_"):
-        expected_raw = list(model.feature_names_in_)
-        # Create mapping of {cleaned_name: original_name_from_model}
-        # Model names like 'concave points_mean' stay 'concave points_mean'
-        mapping = {f.strip().lower().replace('_', ' '): f for f in expected_raw}
-        
-        missing = [f for f in mapping.keys() if f not in df.columns]
-        
-        if missing:
-            st.error(f"Missing columns: {missing}")
-            st.write("Columns found in your file:", list(df.columns))
-            st.stop()
-        
-        X = df[list(mapping.keys())]
-        X.columns = [mapping[c] for c in X.columns]
-    else:
-        X = df.drop([c for c in ["id", "diagnosis"] if c in df.columns], axis=1)
-
-    # 3. Handle Target
+    # STEP 3: Identify the target column and drop rows where labels are missing
     target_col = next((c for c in df.columns if c in ["diagnosis", "target"]), None)
-    if target_col is not None:
+    if target_col:
+        df = df.dropna(subset=[target_col])
         y = df[target_col].map({'m': 1, 'b': 0, '1': 1, '0': 0, 1: 1, 0: 0})
         evaluation_mode = True
     else:
         y = None
         evaluation_mode = False
+
+    # STEP 4: Match features to model expectations
+    if hasattr(model, "feature_names_in_"):
+        expected_raw = list(model.feature_names_in_)
+        mapping = {f.strip().lower().replace('_', ' '): f for f in expected_raw}
+        
+        # Clean rows with missing features
+        df = df.dropna(subset=[col for col in df.columns if col in mapping.keys()])
+        
+        X = df[list(mapping.keys())]
+        X.columns = [mapping[c] for c in X.columns]
+    else:
+        X = df.drop([c for c in ["id", "diagnosis"] if c in df.columns], axis=1)
+ 
 
     # =========================
     # 7. PREDICTION
